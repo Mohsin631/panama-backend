@@ -1,0 +1,45 @@
+name: Deploy Panama (Hostinger SSH Password)
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH (password)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ secrets.APP_PATH }}"
+
+            echo "== Pull latest code =="
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "== Install dependencies =="
+            if command -v composer >/dev/null 2>&1; then
+              composer install --no-dev --optimize-autoloader --no-interaction
+            elif [ -f composer.phar ]; then
+              php composer.phar install --no-dev --optimize-autoloader --no-interaction
+            else
+              echo "Composer not found on server."
+              exit 1
+            fi
+
+            echo "== Migrate + cache =="
+            php artisan down || true
+            php artisan migrate --force
+            php artisan config:cache
+            php artisan route:cache || true
+            php artisan view:cache || true
+            chmod -R ug+rwx storage bootstrap/cache || true
+            php artisan up || true
+
+            echo "✅ Deploy done"
